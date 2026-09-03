@@ -1,0 +1,11 @@
+# Save data
+budget.json
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# OS junk
+.DS_Store
+Thumbs.db
