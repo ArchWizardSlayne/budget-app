@@ -50,6 +50,7 @@ class BudgetApp(ctk.CTk):
         self.percent_labels: list[ctk.CTkLabel] = []
         self.dollar_labels: list[ctk.CTkLabel] = []
         self.swatches: list[ctk.CTkButton] = []
+        self.name_widgets: list[ctk.CTkLabel | ctk.CTkEntry | None] = []
 
         self._build_top()
         self._build_categories()
@@ -132,10 +133,13 @@ class BudgetApp(ctk.CTk):
         self.swatches.append(swatch)
 
         # category name
-        ctk.CTkLabel(
+        name_lbl = ctk.CTkLabel(
             self.cat_frame, text=name, font=("Segoe UI", 22, "bold"),
-            text_color=color, width=140, anchor="w",
-        ).grid(row=row, column=1, padx=(0, 12), pady=14, sticky="w")
+            text_color=color, width=140, anchor="w", cursor="hand2",
+        )
+        name_lbl.grid(row=row, column=1, padx=(0, 12), pady=14, sticky="w")
+        name_lbl.bind("<Button-1>", lambda _e, idx=row - 1: self._start_rename(idx))
+        self.name_widgets.append(name_lbl)
 
         # slider
         slider = ctk.CTkSlider(
@@ -196,11 +200,66 @@ class BudgetApp(ctk.CTk):
                 button_hover_color=hover,
             )
             # update category name color
-            for widget in self.cat_frame.winfo_children():
-                info = widget.grid_info()
-                if info.get("row") == idx + 1 and info.get("column") == 1:
-                    widget.configure(text_color=hex_color)
-                    break
+            if isinstance(self.name_widgets[idx], ctk.CTkEntry):
+                self.name_widgets[idx].configure(text_color=hex_color, border_color=hex_color)
+            elif self.name_widgets[idx] is not None:
+                self.name_widgets[idx].configure(text_color=hex_color)
+
+    def _start_rename(self, idx: int):
+        col1_row = idx + 1
+        if isinstance(self.name_widgets[idx], ctk.CTkEntry):
+            return
+        color = self.categories[idx]["color"]
+        original = self.categories[idx]["name"]
+
+        self.name_widgets[idx].destroy()
+        entry = ctk.CTkEntry(
+            self.cat_frame,
+            font=("Segoe UI", 18, "bold"),
+            text_color=color,
+            width=140,
+            fg_color=BG_ENTRY,
+            border_color=color,
+            border_width=2,
+            corner_radius=8,
+            justify="left",
+        )
+        entry.insert(0, original)
+        entry.grid(row=col1_row, column=1, padx=(0, 12), pady=10, sticky="w")
+        self.name_widgets[idx] = entry
+
+        entry.bind("<Return>", lambda _e: self._confirm_rename(idx, original))
+        entry.bind("<Escape>", lambda _e: self._cancel_rename(idx, original))
+        entry.bind("<FocusOut>", lambda _e: self._confirm_rename(idx, original))
+        entry.focus_set()
+        entry.select_range(0, "end")
+
+    def _confirm_rename(self, idx: int, original: str):
+        entry = self.name_widgets[idx]
+        if not isinstance(entry, ctk.CTkEntry):
+            return
+        new_name = entry.get().strip()
+        if not new_name:
+            new_name = original
+        self.categories[idx]["name"] = new_name
+        self._replace_name_with_label(idx, new_name)
+
+    def _cancel_rename(self, idx: int, original: str):
+        if not isinstance(self.name_widgets[idx], ctk.CTkEntry):
+            return
+        self._replace_name_with_label(idx, original)
+
+    def _replace_name_with_label(self, idx: int, name: str):
+        col1_row = idx + 1
+        color = self.categories[idx]["color"]
+        self.name_widgets[idx].destroy()
+        name_lbl = ctk.CTkLabel(
+            self.cat_frame, text=name, font=("Segoe UI", 22, "bold"),
+            text_color=color, width=140, anchor="w", cursor="hand2",
+        )
+        name_lbl.grid(row=col1_row, column=1, padx=(0, 12), pady=14, sticky="w")
+        name_lbl.bind("<Button-1>", lambda _e, i=idx: self._start_rename(i))
+        self.name_widgets[idx] = name_lbl
 
     def _on_slider(self, idx: int, val: float):
         pct = round(val)
@@ -287,11 +346,12 @@ class BudgetApp(ctk.CTk):
                     button_color=cat_data["color"],
                     button_hover_color=self._lighten(cat_data["color"]),
                 )
-                for widget in self.cat_frame.winfo_children():
-                    info = widget.grid_info()
-                    if info.get("row") == i + 1 and info.get("column") == 1:
-                        widget.configure(text_color=cat_data["color"])
-                        break
+                if isinstance(self.name_widgets[i], ctk.CTkEntry):
+                    self.name_widgets[i].configure(
+                        text_color=cat_data["color"], border_color=cat_data["color"]
+                    )
+                elif self.name_widgets[i] is not None:
+                    self.name_widgets[i].configure(text_color=cat_data["color"])
             self._update_remaining()
         except (json.JSONDecodeError, KeyError):
             pass
