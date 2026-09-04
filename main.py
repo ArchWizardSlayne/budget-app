@@ -40,7 +40,7 @@ class BudgetApp(ctk.CTk):
         self.title("Budget Tracker")
         self.geometry("920x720")
         self.configure(fg_color=BG)
-        self.minsize(780, 620)
+        self.minsize(780, 680)
 
         self.resizable(True, True)
         self.total = tk.IntVar(value=DEFAULT_TOTAL)
@@ -50,6 +50,7 @@ class BudgetApp(ctk.CTk):
         self.percent_labels: list[ctk.CTkLabel] = []
         self.dollar_labels: list[ctk.CTkLabel] = []
         self.swatches: list[ctk.CTkButton] = []
+        self.name_widgets: list[ctk.CTkLabel | ctk.CTkEntry | None] = []
 
         self._build_top()
         self._build_categories()
@@ -59,43 +60,43 @@ class BudgetApp(ctk.CTk):
     # ── Top: Total Budget ────────────────────────────────────────────────
     def _build_top(self):
         frame = ctk.CTkFrame(self, fg_color=BG_FRAME, corner_radius=16)
-        frame.pack(fill="x", padx=24, pady=(24, 12))
+        frame.pack(fill="x", padx=24, pady=(24, 14))
 
         ctk.CTkLabel(
-            frame, text="TOTAL BUDGET", font=("Segoe UI", 14, "bold"),
+            frame, text="TOTAL BUDGET", font=("Segoe UI", 18, "bold"),
             text_color=FG_DIM
-        ).pack(side="left", padx=(20, 8), pady=18)
+        ).pack(side="left", padx=(20, 10), pady=22)
 
         self.total_entry = ctk.CTkEntry(
-            frame, textvariable=self.total, width=160, height=44,
-            font=("Consolas", 26, "bold"), fg_color=BG_ENTRY,
+            frame, textvariable=self.total, width=170, height=52,
+            font=("Consolas", 34, "bold"), fg_color=BG_ENTRY,
             text_color=NEON_GREEN, border_color=NEON_GREEN,
-            border_width=2, corner_radius=10, justify="center",
+            border_width=2, corner_radius=12, justify="center",
             state="disabled",
         )
-        self.total_entry.pack(side="left", padx=4, pady=18)
+        self.total_entry.pack(side="left", padx=4, pady=22)
 
         ctk.CTkLabel(
-            frame, text="$", font=("Consolas", 26, "bold"),
+            frame, text="$", font=("Consolas", 34, "bold"),
             text_color=NEON_GREEN
-        ).pack(side="left", padx=(0, 8), pady=18)
+        ).pack(side="left", padx=(0, 10), pady=22)
 
         self.lock_btn = ctk.CTkButton(
-            frame, text="🔒", width=44, height=44, corner_radius=10,
-            font=("Segoe UI", 20), fg_color=BG_ENTRY,
+            frame, text="LOCKED", width=110, height=44, corner_radius=12,
+            font=("Segoe UI", 15, "bold"), fg_color=BG_ENTRY,
             hover_color="#1a3a6a", command=self._toggle_lock,
         )
-        self.lock_btn.pack(side="left", padx=(12, 20), pady=18)
+        self.lock_btn.pack(side="left", padx=(14, 20), pady=22)
 
     def _toggle_lock(self):
         new = not self.locked.get()
         self.locked.set(new)
         if new:
             self.total_entry.configure(state="disabled")
-            self.lock_btn.configure(text="🔒")
+            self.lock_btn.configure(text="LOCKED")
         else:
             self.total_entry.configure(state="normal")
-            self.lock_btn.configure(text="🔓")
+            self.lock_btn.configure(text="UNLOCKED")
             self.total_entry.focus_set()
 
     # ── Categories ───────────────────────────────────────────────────────
@@ -109,9 +110,9 @@ class BudgetApp(ctk.CTk):
         self.cat_frame.columnconfigure(4, weight=0)
 
         ctk.CTkLabel(
-            self.cat_frame, text="CATEGORIES", font=("Segoe UI", 12, "bold"),
+            self.cat_frame, text="CATEGORIES", font=("Segoe UI", 16, "bold"),
             text_color=FG_DIM
-        ).grid(row=0, column=0, columnspan=5, sticky="w", padx=20, pady=(16, 4))
+        ).grid(row=0, column=0, columnspan=5, sticky="w", padx=24, pady=(18, 6))
 
         for i, cat in enumerate(DEFAULT_CATEGORIES):
             self._add_category_row(i + 1, cat)
@@ -123,51 +124,63 @@ class BudgetApp(ctk.CTk):
 
         # color swatch (clickable)
         swatch = ctk.CTkButton(
-            self.cat_frame, text="", width=28, height=28,
-            fg_color=color, hover_color=color, corner_radius=8,
+            self.cat_frame, text="", width=34, height=34,
+            fg_color=color, hover_color=color, corner_radius=10,
             border_width=2, border_color="#ffffff",
             command=lambda idx=row - 1: self._pick_color(idx),
         )
-        swatch.grid(row=row, column=0, padx=(20, 10), pady=10, sticky="w")
+        swatch.grid(row=row, column=0, padx=(24, 12), pady=14, sticky="w")
         self.swatches.append(swatch)
 
         # category name
-        ctk.CTkLabel(
-            self.cat_frame, text=name, font=("Segoe UI", 17, "bold"),
-            text_color=color, width=120, anchor="w",
-        ).grid(row=row, column=1, padx=(0, 10), pady=10, sticky="w")
+        name_lbl = ctk.CTkLabel(
+            self.cat_frame, text=name, font=("Segoe UI", 22, "bold"),
+            text_color=color, width=140, anchor="w", cursor="hand2",
+        )
+        name_lbl.grid(row=row, column=1, padx=(0, 12), pady=14, sticky="w")
+        name_lbl.bind("<Button-1>", lambda _e, idx=row - 1: self._start_rename(idx))
+        self.name_widgets.append(name_lbl)
 
         # slider
         slider = ctk.CTkSlider(
             self.cat_frame, from_=0, to=100, number_of_steps=100,
-            width=320, height=24, corner_radius=12,
+            height=26, corner_radius=13,
             fg_color="#2a2a4a", progress_color=color,
-            button_color=color, button_hover_color=color,
+            button_color=color, button_hover_color=self._lighten(color),
             command=lambda val, idx=row - 1: self._on_slider(idx, val),
         )
         slider.set(pct)
-        slider.grid(row=row, column=2, padx=10, pady=10, sticky="ew")
+        slider.grid(row=row, column=2, padx=12, pady=14, sticky="ew")
         self.sliders.append(slider)
 
         # percent label
         pct_lbl = ctk.CTkLabel(
-            self.cat_frame, text=f"{pct}%", font=("Consolas", 16, "bold"),
-            text_color=FG, width=56, anchor="e",
+            self.cat_frame, text=f"{pct}%", font=("Consolas", 20, "bold"),
+            text_color=FG, width=60, anchor="e",
         )
-        pct_lbl.grid(row=row, column=3, padx=(4, 8), pady=10)
+        pct_lbl.grid(row=row, column=3, padx=(4, 10), pady=14)
         self.percent_labels.append(pct_lbl)
 
         # dollar label
         dollar = self._calc_dollar(pct)
         dol_lbl = ctk.CTkLabel(
             self.cat_frame, text=f"${dollar:,.0f}",
-            font=("Consolas", 16, "bold"), text_color=color,
-            width=90, anchor="e",
+            font=("Consolas", 20, "bold"), text_color=color,
+            width=120, anchor="e",
         )
-        dol_lbl.grid(row=row, column=4, padx=(0, 20), pady=10, sticky="e")
+        dol_lbl.grid(row=row, column=4, padx=(0, 24), pady=14, sticky="e")
         self.dollar_labels.append(dol_lbl)
 
         self.categories.append({"name": name, "percent": pct, "color": color})
+
+    def _lighten(self, hex_color: str, amount: float = 0.35) -> str:
+        """Lighten a hex color toward white for hover states."""
+        hex_color = hex_color.lstrip("#")
+        r, g, b = (int(hex_color[i : i + 2], 16) for i in (0, 2, 4))
+        r = round(r + (255 - r) * amount)
+        g = round(g + (255 - g) * amount)
+        b = round(b + (255 - b) * amount)
+        return f"#{r:02x}{g:02x}{b:02x}"
 
     def _pick_color(self, idx: int):
         current = self.categories[idx]["color"]
@@ -176,6 +189,7 @@ class BudgetApp(ctk.CTk):
         )
         if result and result[1]:
             hex_color = result[1]
+            hover = self._lighten(hex_color)
             self.categories[idx]["color"] = hex_color
             self.swatches[idx].configure(fg_color=hex_color, hover_color=hex_color)
             self.dollar_labels[idx].configure(text_color=hex_color)
@@ -183,14 +197,69 @@ class BudgetApp(ctk.CTk):
             self.sliders[idx].configure(
                 progress_color=hex_color,
                 button_color=hex_color,
-                button_hover_color=hex_color,
+                button_hover_color=hover,
             )
             # update category name color
-            for widget in self.cat_frame.winfo_children():
-                info = widget.grid_info()
-                if info.get("row") == idx + 1 and info.get("column") == 1:
-                    widget.configure(text_color=hex_color)
-                    break
+            if isinstance(self.name_widgets[idx], ctk.CTkEntry):
+                self.name_widgets[idx].configure(text_color=hex_color, border_color=hex_color)
+            elif self.name_widgets[idx] is not None:
+                self.name_widgets[idx].configure(text_color=hex_color)
+
+    def _start_rename(self, idx: int):
+        col1_row = idx + 1
+        if isinstance(self.name_widgets[idx], ctk.CTkEntry):
+            return
+        color = self.categories[idx]["color"]
+        original = self.categories[idx]["name"]
+
+        self.name_widgets[idx].destroy()
+        entry = ctk.CTkEntry(
+            self.cat_frame,
+            font=("Segoe UI", 18, "bold"),
+            text_color=color,
+            width=140,
+            fg_color=BG_ENTRY,
+            border_color=color,
+            border_width=2,
+            corner_radius=8,
+            justify="left",
+        )
+        entry.insert(0, original)
+        entry.grid(row=col1_row, column=1, padx=(0, 12), pady=10, sticky="w")
+        self.name_widgets[idx] = entry
+
+        entry.bind("<Return>", lambda _e: self._confirm_rename(idx, original))
+        entry.bind("<Escape>", lambda _e: self._cancel_rename(idx, original))
+        entry.bind("<FocusOut>", lambda _e: self._confirm_rename(idx, original))
+        entry.focus_set()
+        entry.select_range(0, "end")
+
+    def _confirm_rename(self, idx: int, original: str):
+        entry = self.name_widgets[idx]
+        if not isinstance(entry, ctk.CTkEntry):
+            return
+        new_name = entry.get().strip()
+        if not new_name:
+            new_name = original
+        self.categories[idx]["name"] = new_name
+        self._replace_name_with_label(idx, new_name)
+
+    def _cancel_rename(self, idx: int, original: str):
+        if not isinstance(self.name_widgets[idx], ctk.CTkEntry):
+            return
+        self._replace_name_with_label(idx, original)
+
+    def _replace_name_with_label(self, idx: int, name: str):
+        col1_row = idx + 1
+        color = self.categories[idx]["color"]
+        self.name_widgets[idx].destroy()
+        name_lbl = ctk.CTkLabel(
+            self.cat_frame, text=name, font=("Segoe UI", 22, "bold"),
+            text_color=color, width=140, anchor="w", cursor="hand2",
+        )
+        name_lbl.grid(row=col1_row, column=1, padx=(0, 12), pady=14, sticky="w")
+        name_lbl.bind("<Button-1>", lambda _e, i=idx: self._start_rename(i))
+        self.name_widgets[idx] = name_lbl
 
     def _on_slider(self, idx: int, val: float):
         pct = round(val)
@@ -205,28 +274,28 @@ class BudgetApp(ctk.CTk):
     # ── Footer ───────────────────────────────────────────────────────────
     def _build_footer(self):
         frame = ctk.CTkFrame(self, fg_color=BG_FRAME, corner_radius=16)
-        frame.pack(fill="x", padx=24, pady=(12, 24))
+        frame.pack(fill="x", padx=24, pady=(14, 24))
 
         self.remaining_lbl = ctk.CTkLabel(
-            frame, text="Remaining: $2,000", font=("Segoe UI", 16, "bold"),
+            frame, text="Remaining: $2,000", font=("Segoe UI", 20, "bold"),
             text_color=NEON_GREEN,
         )
-        self.remaining_lbl.pack(side="left", padx=20, pady=16)
+        self.remaining_lbl.pack(side="left", padx=24, pady=18)
 
         btn_frame = ctk.CTkFrame(frame, fg_color="transparent")
-        btn_frame.pack(side="right", padx=20, pady=16)
+        btn_frame.pack(side="right", padx=24, pady=18)
 
         ctk.CTkButton(
-            btn_frame, text="  Save  ", width=100, height=40,
-            font=("Segoe UI", 14, "bold"), fg_color=BG_ENTRY,
-            hover_color="#1a3a6a", corner_radius=10,
+            btn_frame, text="  Save  ", width=110, height=46,
+            font=("Segoe UI", 16, "bold"), fg_color=BG_ENTRY,
+            hover_color="#1a3a6a", corner_radius=12,
             command=self._save,
         ).pack(side="left", padx=6)
 
         ctk.CTkButton(
-            btn_frame, text="  Load  ", width=100, height=40,
-            font=("Segoe UI", 14, "bold"), fg_color=BG_ENTRY,
-            hover_color="#1a3a6a", corner_radius=10,
+            btn_frame, text="  Load  ", width=110, height=46,
+            font=("Segoe UI", 16, "bold"), fg_color=BG_ENTRY,
+            hover_color="#1a3a6a", corner_radius=12,
             command=self._load,
         ).pack(side="left", padx=6)
 
@@ -275,13 +344,14 @@ class BudgetApp(ctk.CTk):
                 self.sliders[i].configure(
                     progress_color=cat_data["color"],
                     button_color=cat_data["color"],
-                    button_hover_color=cat_data["color"],
+                    button_hover_color=self._lighten(cat_data["color"]),
                 )
-                for widget in self.cat_frame.winfo_children():
-                    info = widget.grid_info()
-                    if info.get("row") == i + 1 and info.get("column") == 1:
-                        widget.configure(text_color=cat_data["color"])
-                        break
+                if isinstance(self.name_widgets[i], ctk.CTkEntry):
+                    self.name_widgets[i].configure(
+                        text_color=cat_data["color"], border_color=cat_data["color"]
+                    )
+                elif self.name_widgets[i] is not None:
+                    self.name_widgets[i].configure(text_color=cat_data["color"])
             self._update_remaining()
         except (json.JSONDecodeError, KeyError):
             pass
