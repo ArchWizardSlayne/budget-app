@@ -2,8 +2,9 @@
 """Neon Budget Tracker — Modern GUI built with CustomTkinter."""
 
 import json                # save/load budget data to/from the JSON save file
-import tkinter as tk       # provides the tk.IntVar / tk.BooleanVar variables
+import tkinter as tk       # provides the tk.BooleanVar / tk.StringVar variables
 from tkinter import colorchooser     # native OS color-picker dialog for category swatches
+from tkinter import messagebox       # error dialogs for failed save/load
 from pathlib import Path   # cross-platform path helper for locating the save file
 
 import customtkinter as ctk  # the GUI toolkit this app is built on
@@ -122,9 +123,31 @@ class BudgetApp(ctk.CTk):
 
     # ── Categories ───────────────────────────────────────────────────────
     def _build_categories(self):
-        self.cat_frame = ctk.CTkFrame(self, fg_color=BG_FRAME, corner_radius=16)
+        panel = ctk.CTkFrame(self, fg_color=BG_FRAME, corner_radius=16)
         # fill/expand makes this panel grow to use all leftover vertical space.
-        self.cat_frame.pack(fill="both", expand=True, padx=24, pady=12)
+        panel.pack(fill="both", expand=True, padx=24, pady=12)
+
+        # Fixed header: the panel title and the add button stay put while the
+        # category rows below can scroll within the scrollable frame.
+        header = ctk.CTkFrame(panel, fg_color="transparent")
+        header.pack(fill="x", padx=16, pady=(14, 4))
+
+        ctk.CTkLabel(
+            header, text="CATEGORIES", font=("Segoe UI", 16, "bold"),
+            text_color=FG_DIM
+        ).pack(side="left", padx=12, pady=6)
+
+        ctk.CTkButton(
+            header, text="+ Add Category", width=130, height=34,
+            font=("Segoe UI", 14, "bold"),
+            fg_color=BG_ENTRY,
+            hover_color="#1a3a6a",
+            corner_radius=10,
+            command=self._add_category,  # clicking appends a brand-new category row
+        ).pack(side="right", padx=12, pady=6)
+
+        self.cat_frame = ctk.CTkScrollableFrame(panel, fg_color=BG_FRAME, corner_radius=0)
+        self.cat_frame.pack(fill="both", expand=True, padx=8, pady=(0, 8))
         # Grid columns: 0=swatch, 1=name, 2=slider, 3=%, 4=$, 5=delete button. 
         self.cat_frame.columnconfigure(0, weight=0)  # fixed width
         self.cat_frame.columnconfigure(1, weight=0)  # fixed width
@@ -133,26 +156,12 @@ class BudgetApp(ctk.CTk):
         self.cat_frame.columnconfigure(4, weight=0)  # fixed width
         self.cat_frame.columnconfigure(5, weight=0)  # fixed width
 
-        ctk.CTkLabel(
-            self.cat_frame, text="CATEGORIES", font=("Segoe UI", 16, "bold"),
-            text_color=FG_DIM
-        ).grid(row=0, column=0, columnspan=5, sticky="w", padx=24, pady=(18, 6))  # full-width header row
-
-        ctk.CTkButton(
-            self.cat_frame, text="+ Add Category", width=130, height=34,
-            font=("Segoe UI", 14, "bold"),
-            fg_color=BG_ENTRY,
-            hover_color="#1a3a6a",
-            corner_radius=10,
-            command=self._add_category,  # clicking appends a brand-new category row
-        ).grid(row=0, column=5, sticky="e", padx=(0, 24), pady=(18, 6))  # header control sits above the delete column
-
-        # Create one row per default category, starting at row 1 (below the header).
+        # Create one default category row per entry.
         self.categories = [dict(cat) for cat in DEFAULT_CATEGORIES]  # working copies, so edits never touch the defaults
         for i, cat in enumerate(self.categories):
-            self._add_category_row(i + 1, cat)
+            self._add_category_row(i, cat)
 
-    def _add_category_row(self, row: int, cat: dict):
+    def _add_category_row(self, idx: int, cat: dict):
         # Convenient local copies of this category's saved settings.
         color = cat["color"]
         pct = cat["percent"]
@@ -163,9 +172,9 @@ class BudgetApp(ctk.CTk):
             self.cat_frame, text="", width=34, height=34,
             fg_color=color, hover_color=color, corner_radius=10,
             border_width=2, border_color="#ffffff",
-            command=lambda idx=row - 1: self._pick_color(idx),  # open color picker on click
+            command=lambda i=idx: self._pick_color(i),  # open color picker on click
         )
-        swatch.grid(row=row, column=0, padx=(24, 12), pady=14, sticky="w")
+        swatch.grid(row=idx, column=0, padx=(24, 12), pady=14, sticky="w")
         self.swatches.append(swatch)
 
         # category name
@@ -173,8 +182,8 @@ class BudgetApp(ctk.CTk):
             self.cat_frame, text=name, font=("Segoe UI", 22, "bold"),
             text_color=color, width=140, anchor="w", cursor="hand2",
         )
-        name_lbl.grid(row=row, column=1, padx=(0, 12), pady=14, sticky="w")
-        name_lbl.bind("<Button-1>", lambda _e, idx=row - 1: self._start_rename(idx))  # click name to rename
+        name_lbl.grid(row=idx, column=1, padx=(0, 12), pady=14, sticky="w")
+        name_lbl.bind("<Button-1>", lambda _e, i=idx: self._start_rename(i))  # click name to rename
         self.name_widgets.append(name_lbl)
 
         # slider
@@ -183,10 +192,10 @@ class BudgetApp(ctk.CTk):
             height=26, corner_radius=13,
             fg_color="#2a2a4a", progress_color=color,
             button_color=color, button_hover_color=self._lighten(color),
-            command=lambda val, idx=row - 1: self._on_slider(idx, val),  # live-update as you drag
+            command=lambda val, i=idx: self._on_slider(i, val),  # live-update as you drag
         )
         slider.set(pct)
-        slider.grid(row=row, column=2, padx=12, pady=14, sticky="ew")
+        slider.grid(row=idx, column=2, padx=12, pady=14, sticky="ew")
         self.sliders.append(slider)
 
         # percent label
@@ -194,7 +203,7 @@ class BudgetApp(ctk.CTk):
             self.cat_frame, text=f"{pct}%", font=("Consolas", 20, "bold"),
             text_color=FG, width=60, anchor="e",
         )
-        pct_lbl.grid(row=row, column=3, padx=(4, 10), pady=14)
+        pct_lbl.grid(row=idx, column=3, padx=(4, 10), pady=14)
         self.percent_labels.append(pct_lbl)
 
         # dollar label
@@ -204,7 +213,7 @@ class BudgetApp(ctk.CTk):
             font=("Consolas", 20, "bold"), text_color=color,
             width=120, anchor="e",
         )
-        dol_lbl.grid(row=row, column=4, padx=(0, 24), pady=14, sticky="e")
+        dol_lbl.grid(row=idx, column=4, padx=(0, 24), pady=14, sticky="e")
         self.dollar_labels.append(dol_lbl)
 
         # delete button (removes this row entirely)
@@ -214,9 +223,9 @@ class BudgetApp(ctk.CTk):
             fg_color=BG_ENTRY,
             hover_color="#a01a2e",
             corner_radius=10,
-            command=lambda idx=row - 1: self._delete_category(idx),  # strip this category on click
+            command=lambda i=idx: self._delete_category(i),  # strip this category on click
         )
-        delete_btn.grid(row=row, column=5, padx=(0, 24), pady=14, sticky="e")
+        delete_btn.grid(row=idx, column=5, padx=(0, 24), pady=14, sticky="e")
         self.delete_buttons.append(delete_btn)
 
     def _lighten(self, hex_color: str, amount: float = 0.35) -> str:
@@ -228,6 +237,14 @@ class BudgetApp(ctk.CTk):
         g = round(g + (255 - g) * amount)                     # push green channel toward white
         b = round(b + (255 - b) * amount)                     # push blue channel toward white
         return f"#{r:02x}{g:02x}{b:02x}"                      # re-format back into a hex color string
+
+    def _is_hex(self, value: str) -> bool:
+        # True when the value is a #rrggbb hex color string (e.g. "#00ff41").
+        try:
+            digits = value.lstrip("#")
+            return len(digits) == 6 and int(digits, 16) >= 0
+        except (ValueError, TypeError, AttributeError):
+            return False
 
     def _pick_color(self, idx: int):
         current = self.categories[idx]["color"]  # open the picker pre-selected on the current color
@@ -253,7 +270,7 @@ class BudgetApp(ctk.CTk):
                 self.name_widgets[idx].configure(text_color=hex_color)
 
     def _start_rename(self, idx: int):
-        col1_row = idx + 1  # grid rows start at 1 (row 0 is the header)
+        col1_row = idx  # grid rows match the category index (row 0 is the first category)
         if isinstance(self.name_widgets[idx], ctk.CTkEntry):
             return  # already editing this name — ignore duplicate clicks
         color = self.categories[idx]["color"]
@@ -300,7 +317,7 @@ class BudgetApp(ctk.CTk):
         self._replace_name_with_label(idx, original)
 
     def _replace_name_with_label(self, idx: int, name: str):
-        col1_row = idx + 1
+        col1_row = idx
         color = self.categories[idx]["color"]
         self.name_widgets[idx].destroy()
         # Rebuild the clickable label that re-enters rename mode when clicked.
@@ -340,7 +357,7 @@ class BudgetApp(ctk.CTk):
         color = NEW_CATEGORY_COLORS[len(self.categories) % len(NEW_CATEGORY_COLORS)]  # cycle so neighbors keep distinct hues
         new_cat = {"name": "New Category", "percent": 0, "color": color}
         self.categories.append(new_cat)  # register it in the working list first...
-        self._add_category_row(len(self.categories), new_cat)  # ...then draw its row (rows run 1..N below the header)
+        self._add_category_row(len(self.categories) - 1, new_cat)  # ...then draw its row at the index it now holds
         self._update_remaining()  # keep the footer readout fresh (0% adds nothing, but stay consistent)
 
     def _delete_category(self, idx: int):
@@ -354,8 +371,7 @@ class BudgetApp(ctk.CTk):
         # A mid-list deletion shifts every later row, so rebuild all of them from
         # scratch: destroy the old row widgets, then recreate one per category.
         for widget in self.cat_frame.grid_slaves():
-            if widget.grid_info()["row"] >= 1:  # leave the header row (title + add button) untouched
-                widget.destroy()
+            widget.destroy()
         self.swatches.clear()
         self.percent_labels.clear()
         self.dollar_labels.clear()
@@ -363,7 +379,7 @@ class BudgetApp(ctk.CTk):
         self.sliders.clear()
         self.name_widgets.clear()
         for i, cat in enumerate(self.categories):
-            self._add_category_row(i + 1, cat)
+            self._add_category_row(i, cat)
         self._update_remaining()  # footer re-totals now that the row count has changed
 
     # ── Footer ───────────────────────────────────────────────────────────
@@ -425,7 +441,7 @@ class BudgetApp(ctk.CTk):
                 encoding="utf-8",
             )
         except (OSError, UnicodeEncodeError):
-            tk.messagebox.showerror(
+            messagebox.showerror(
                 "Save failed",
                 "Could not save your budget. Check that the file is writable and not open elsewhere.",
             )
@@ -435,25 +451,34 @@ class BudgetApp(ctk.CTk):
             return  # no saved budget yet — keep the default categories
         try:
             data = json.loads(SAVE_PATH.read_text(encoding="utf-8"))
-            parsed = data.get("total")
-            try:
-                total = max(0, int(float(str(parsed).replace(",", ""))))
-            except (ValueError, TypeError):
-                total = self._last_valid_total
-            self.total.set(str(total))
-            self._last_valid_total = total
-            # Adopt exactly the saved categories (the count may differ from the
-            # defaults now that rows can be added and removed), then rebuild
-            # every row so the screen matches the file.
-            self.categories = [
-                {"name": c["name"], "percent": c["percent"], "color": c["color"]}
-                for c in data["categories"]
-            ]
-            self._rebuild_rows()
-            self.locked.set(True)      # a load restores the saved budget, so the entry starts read-only
-            self._apply_lock_state()
+
+            # Validate everything into locals first, so a bad file leaves the
+            # current budget completely untouched.
+            total = max(0, int(float(str(data.get("total")).replace(",", ""))))
+            categories = []
+            for c in data["categories"]:
+                categories.append({
+                    "name": str(c["name"]),
+                    "percent": max(0, min(100, int(float(c["percent"])))),
+                    "color": c["color"] if self._is_hex(c["color"]) else "#8888aa",
+                })
         except (KeyError, TypeError, ValueError, AttributeError, json.JSONDecodeError):
-            pass  # corrupt/incomplete file: keep current values rather than crash
+            messagebox.showerror(
+                "Load failed",
+                "Could not load your budget from budget.json. "
+                "The file may be corrupt or was edited by hand.",
+            )
+            return  # nothing was mutated — the current budget stays intact
+
+        # Commit atomically now that the file is known to be valid.
+        if not categories:  # never let the panel end up with zero rows
+            categories = [dict(c) for c in DEFAULT_CATEGORIES]
+        self.total.set(str(total))
+        self._last_valid_total = total
+        self.categories = categories
+        self._rebuild_rows()
+        self.locked.set(True)      # a load restores the saved budget, so the entry starts read-only
+        self._apply_lock_state()
 
 
 if __name__ == "__main__":
