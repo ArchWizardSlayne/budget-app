@@ -49,7 +49,8 @@ class BudgetApp(ctk.CTk):
         self.minsize(780, 680)          # smallest size the user can resize down to
 
         self.resizable(True, True)      # allow resizing in both directions
-        self.total = tk.IntVar(value=DEFAULT_TOTAL)   # shared variable bound to the total entry
+        self.total = tk.StringVar(value=str(DEFAULT_TOTAL))  # shared variable bound to the total entry
+        self._last_valid_total = DEFAULT_TOTAL  # fallback amount kept when the entry holds garbage
         self.locked = tk.BooleanVar(value=True)      # whether the total entry is read-only
         self.categories: list[dict] = []             # working data per category: name/percent/color
         self.sliders: list[ctk.CTkSlider] = []       # references to each percentage slider widget
@@ -109,6 +110,7 @@ class BudgetApp(ctk.CTk):
         new = not self.locked.get()
         self.locked.set(new)
         if new:
+            self.total.set(str(self._get_total()))  # revert any garbage back to the last valid amount
             self.total_entry.configure(state="disabled")  # lock: grey the entry out
             self.lock_btn.configure(text="LOCKED")
         else:
@@ -315,9 +317,19 @@ class BudgetApp(ctk.CTk):
         self.dollar_labels[idx].configure(text=f"${self._calc_dollar(pct):,.0f}")
         self._update_remaining()  # footer must re-total as soon as a split changes
 
+    def _get_total(self) -> int:
+        # Parse the total entry's text; fall back to the last valid amount if it holds garbage.
+        raw = self.total.get()
+        try:
+            parsed = max(0, int(float(raw.replace(",", ""))))
+        except (ValueError, TypeError):
+            parsed = self._last_valid_total
+        self._last_valid_total = parsed
+        return parsed
+
     def _calc_dollar(self, pct: int) -> float:
         # Convert a percentage of the overall total into the corresponding dollar figure.
-        return self.total.get() * pct / 100
+        return self._get_total() * pct / 100
 
     def _add_category(self):
         # Append a fresh empty category and build its row immediately;
@@ -387,7 +399,7 @@ class BudgetApp(ctk.CTk):
 
     def _update_remaining(self):
         spent = sum(self._calc_dollar(c["percent"]) for c in self.categories)  # dollars already allocated
-        remaining = self.total.get() - spent
+        remaining = self._get_total() - spent
         color = NEON_GREEN if remaining >= 0 else NEON_RED  # green for leftover, red for overruns
         prefix = "Remaining" if remaining >= 0 else "Over by"
         self.remaining_lbl.configure(
@@ -398,7 +410,7 @@ class BudgetApp(ctk.CTk):
     def _save(self):
         # Serialize the current budget so it can be restored on a later launch.
         data = {
-            "total": self.total.get(),
+            "total": self._get_total(),
             "categories": [
                 {"name": c["name"], "percent": c["percent"], "color": c["color"]}
                 for c in self.categories
@@ -411,7 +423,13 @@ class BudgetApp(ctk.CTk):
             return  # no saved budget yet — keep the default categories
         try:
             data = json.loads(SAVE_PATH.read_text())
-            self.total.set(data["total"])
+            parsed = data.get("total")
+            try:
+                total = max(0, int(float(str(parsed).replace(",", ""))))
+            except (ValueError, TypeError):
+                total = self._last_valid_total
+            self.total.set(str(total))
+            self._last_valid_total = total
             # Adopt exactly the saved categories (the count may differ from the
             # defaults now that rows can be added and removed), then rebuild
             # every row so the screen matches the file.
@@ -420,7 +438,7 @@ class BudgetApp(ctk.CTk):
                 for c in data["categories"]
             ]
             self._rebuild_rows()
-        except (json.JSONDecodeError, KeyError):
+        except (KeyError, TypeError, ValueError, AttributeError, json.JSONDecodeError):
             pass  # corrupt/incomplete file: keep current values rather than crash
 
 
