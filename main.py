@@ -2,7 +2,6 @@
 """Neon Budget Tracker — Modern GUI built with CustomTkinter."""
 
 import json                # save/load budget data to/from the JSON save file
-import os                  # (imported but currently unused)
 import tkinter as tk       # provides the tk.IntVar / tk.BooleanVar variables
 from tkinter import colorchooser     # native OS color-picker dialog for category swatches
 from pathlib import Path   # cross-platform path helper for locating the save file
