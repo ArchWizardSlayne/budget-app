@@ -105,10 +105,13 @@ class BudgetApp(ctk.CTk):
         self.lock_btn.pack(side="left", padx=(14, 20), pady=22)
 
     def _toggle_lock(self):
-        # Flip the lock, then enable/disable the total entry to match the new state.
-        new = not self.locked.get()
-        self.locked.set(new)
-        if new:
+        # Flip the lock, then sync the entry and button widgets.
+        self.locked.set(not self.locked.get())
+        self._apply_lock_state()
+
+    def _apply_lock_state(self):
+        # Sync the total entry and lock button with the current lock flag.
+        if self.locked.get():
             self.total.set(str(self._get_total()))  # revert any garbage back to the last valid amount
             self.total_entry.configure(state="disabled")  # lock: grey the entry out
             self.lock_btn.configure(text="LOCKED")
@@ -446,6 +449,8 @@ class BudgetApp(ctk.CTk):
                 for c in data["categories"]
             ]
             self._rebuild_rows()
+            self.locked.set(True)      # a load restores the saved budget, so the entry starts read-only
+            self._apply_lock_state()
         except (KeyError, TypeError, ValueError, AttributeError, json.JSONDecodeError):
             pass  # corrupt/incomplete file: keep current values rather than crash
 
