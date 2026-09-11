@@ -273,7 +273,7 @@ class BudgetApp(ctk.CTk):
             justify="left",
         )
         entry.insert(0, original)
-        entry.grid(row=col1_row, column=1, padx=(0, 12), pady=10, sticky="w")
+        entry.grid(row=col1_row, column=1, padx=(0, 12), pady=14, sticky="w")
         self.name_widgets[idx] = entry
 
         # Enter/FocusOut commit the rename; Escape restores the original instead.
