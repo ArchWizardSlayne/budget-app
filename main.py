@@ -415,13 +415,22 @@ class BudgetApp(ctk.CTk):
                 for c in self.categories
             ],
         }
-        SAVE_PATH.write_text(json.dumps(data, indent=2))  # pretty-printed so it's easy to hand-edit
+        try:
+            SAVE_PATH.write_text(
+                json.dumps(data, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+        except (OSError, UnicodeEncodeError):
+            tk.messagebox.showerror(
+                "Save failed",
+                "Could not save your budget. Check that the file is writable and not open elsewhere.",
+            )
 
     def _load(self):
         if not SAVE_PATH.exists():
             return  # no saved budget yet — keep the default categories
         try:
-            data = json.loads(SAVE_PATH.read_text())
+            data = json.loads(SAVE_PATH.read_text(encoding="utf-8"))
             parsed = data.get("total")
             try:
                 total = max(0, int(float(str(parsed).replace(",", ""))))
