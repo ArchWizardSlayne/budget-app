@@ -317,6 +317,7 @@ class BudgetApp(ctk.CTk):
         self.categories[idx]["percent"] = pct
         self.percent_labels[idx].configure(text=f"{pct}%")
         self.dollar_labels[idx].configure(text=f"${self._calc_dollar(pct):,.0f}")
+        self.sliders[idx].set(pct)  # snap the thumb to the rounded value so it matches the labels
         self._update_remaining()  # footer must re-total as soon as a split changes
 
     def _get_total(self) -> int:
