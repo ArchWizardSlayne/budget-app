@@ -53,7 +53,7 @@ class BudgetApp(ctk.CTk):
         self.locked = tk.BooleanVar(value=True)      # whether the total entry is read-only
         self.categories: list[dict] = []             # working data per category: name/percent/color
         self.sliders: list[ctk.CTkSlider] = []       # references to each percentage slider widget
-        self.percent_labels: list[ctk.CTkLabel] = [] # references to each "%"" label widget
+        self.percent_labels: list[ctk.CTkLabel] = [] # references to each "%" label widget
         self.dollar_labels: list[ctk.CTkLabel] = []  # references to each "$" label widget
         self.swatches: list[ctk.CTkButton] = []      # references to each color swatch button
         self.delete_buttons: list[ctk.CTkButton] = []  # references to each delete button
