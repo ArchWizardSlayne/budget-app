@@ -342,6 +342,18 @@ class BudgetApp(ctk.CTk):
             text_color=FG_DIM
         ).pack(side="left", padx=12, pady=6)
 
+        # Sort toggle: re-orders the rows highest→lowest / lowest→highest.
+        self.sort_mode = "desc"  # direction the next click applies
+        self.sort_btn = ctk.CTkButton(
+            header, text="⇅ Sort", width=150, height=34,
+            font=("Segoe UI", 14, "bold"),
+            fg_color=BG_ENTRY,
+            hover_color="#1a3a6a",
+            corner_radius=10,
+            command=self._toggle_sort,
+        )
+        self.sort_btn.pack(side="left", padx=8, pady=6)
+
         # View switcher: list the category rows, or show the donut breakdown instead.
         view_switch = ctk.CTkSegmentedButton(
             header, values=["List", "Chart"], width=150, height=32,
@@ -621,6 +633,22 @@ class BudgetApp(ctk.CTk):
             self._add_category_row(i, cat)
         self._update_remaining()  # footer re-totals now that the row count has changed
         self._refresh_chart()  # rebuild the legend/donut to match the row list (includes profile switches)
+
+    # ── Sorting ────────────────────────────────────────────────────────
+    def _toggle_sort(self):
+        # Flip the sort direction and re-order the categories in place.
+        self.sort_mode = "desc" if self.sort_mode == "asc" else "asc"
+        self._sort_categories()
+
+    def _sort_categories(self):
+        # Ties keep their relative order because list.sort is stable.
+        self.categories.sort(
+            key=lambda c: c["percent"], reverse=(self.sort_mode == "desc")
+        )
+        self.sort_btn.configure(
+            text=f"⇅ {'High → Low' if self.sort_mode == 'desc' else 'Low → High'}"
+        )
+        self._rebuild_rows()  # re-draw rows and refresh the chart/legend in the new order
 
     # ── Chart view ────────────────────────────────────────────────────
     def _switch_view(self, value: str):
