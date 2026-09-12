@@ -39,6 +39,83 @@ NEW_CATEGORY_COLORS = [  # palette cycled through for categories added at runtim
 SAVE_PATH = Path(__file__).parent / "budget.json"
 
 
+# ── Profile name dialog ─────────────────────────────────────────────────────
+class ProfileNameDialog(ctk.CTkToplevel):
+    """Small neon-styled popup that asks the user for a profile name."""
+
+    def __init__(self, master, title: str, initial: str = ""):
+        super().__init__(master)
+        self.title(title)
+        self.configure(fg_color=BG_FRAME)
+        self.resizable(False, False)
+        self._result: str | None = None
+        self._closed = False
+
+        self.after(200, self._center_over, master)  # center once the popup has its final size
+
+        ctk.CTkLabel(
+            self, text=title, font=("Segoe UI", 15, "bold"), text_color=FG_DIM
+        ).pack(padx=24, pady=(18, 6))
+
+        self.entry = ctk.CTkEntry(
+            self, width=240, height=40, font=("Segoe UI", 15, "bold"),
+            fg_color=BG_ENTRY, text_color=FG,
+            border_color=NEON_GREEN, border_width=2, corner_radius=10,
+        )
+        self.entry.insert(0, initial)
+        self.entry.pack(padx=24, pady=6)
+
+        buttons = ctk.CTkFrame(self, fg_color="transparent")
+        buttons.pack(padx=24, pady=(6, 18))
+        ctk.CTkButton(
+            buttons, text="Cancel", width=92, height=34,
+            font=("Segoe UI", 14, "bold"),
+            fg_color=BG_ENTRY, hover_color="#1a3a6a", corner_radius=10,
+            command=self._cancel,
+        ).pack(side="left", padx=6)
+        ctk.CTkButton(
+            buttons, text="OK", width=92, height=34,
+            font=("Segoe UI", 14, "bold"),
+            fg_color=NEON_GREEN, hover_color="#00d43a", corner_radius=10,
+            text_color="#001a10",
+            command=self._confirm,
+        ).pack(side="left", padx=6)
+
+        self.entry.bind("<Return>", lambda _e: self._confirm())
+        self.entry.bind("<Escape>", lambda _e: self._cancel())
+        self.protocol("WM_DELETE_WINDOW", self._cancel)
+
+        self.entry.focus_set()
+        self.entry.select_range(0, "end")  # highlight the old text so typing replaces it
+        self.grab_set()                     # block the main window until the popup is dismissed
+        self.wait_window()                  # pause here until the popup is destroyed
+
+    def _center_over(self, master):
+        self.update_idletasks()  # make sure the popup has its final dimensions
+        x = master.winfo_rootx() + (master.winfo_width() - self.winfo_width()) // 2
+        y = master.winfo_rooty() + (master.winfo_height() - self.winfo_height()) // 2
+        self.geometry(f"+{max(x, 0)}+{max(y, 0)}")
+
+    def _confirm(self):
+        self._result = self.entry.get()
+        self._close()
+
+    def _cancel(self):
+        self._result = None
+        self._close()
+
+    def _close(self):
+        if self._closed:
+            return
+        self._closed = True
+        self.grab_release()
+        self.destroy()
+
+    @property
+    def result(self) -> str | None:
+        return self._result
+
+
 # ── App ──────────────────────────────────────────────────────────────────────
 class BudgetApp(ctk.CTk):
     def __init__(self):
@@ -60,10 +137,138 @@ class BudgetApp(ctk.CTk):
         self.delete_buttons: list[ctk.CTkButton] = []  # references to each delete button
         self.name_widgets: list[ctk.CTkLabel | ctk.CTkEntry | None] = [] # name is a label, an in-edit entry, or nothing
 
+        self.profiles: dict[str, dict] = {}          # saved budgets: profile name -> {"total", "categories"}
+        self.active_profile = "Default"              # which saved budget is currently on screen
+
+        self._build_profile_bar()  # profile switcher bar at the very top
         self._build_top()          # header area: total amount + lock button
         self._build_categories()   # the category rows (swatch, name, slider, labels)
-        self._build_footer()       # footer area: remaining readout + Save/Load buttons
-        self._load()               # restore a previously saved budget, if one exists
+        self._build_footer()       # footer area: remaining readout + Save/Reload buttons
+        self._load_storage()               # restore every saved profile (migrating a legacy file if needed)
+        self._apply_active_profile()       # draw the last-active profile into the widgets
+        self.protocol("WM_DELETE_WINDOW", self._on_close)  # autosave the active profile on exit
+
+    # ── Profile bar ─────────────────────────────────────────────────────
+    def _build_profile_bar(self):
+        frame = ctk.CTkFrame(self, fg_color=BG_FRAME, corner_radius=16)  # rounded panel for the switcher
+        frame.pack(fill="x", padx=24, pady=(24, 0))  # full-width at the very top of the window
+
+        ctk.CTkLabel(
+            frame, text="PROFILE", font=("Segoe UI", 18, "bold"),
+            text_color=FG_DIM
+        ).pack(side="left", padx=(20, 10), pady=14)  # caption left of the dropdown
+
+        self.profile_menu = ctk.CTkOptionMenu(
+            frame, width=210, height=42,
+            font=("Segoe UI", 15, "bold"),
+            fg_color=BG_ENTRY,
+            button_color=BG_ENTRY,
+            button_hover_color="#1a3a6a",
+            dropdown_fg_color=BG_FRAME,
+            dropdown_hover_color="#1a3a6a",
+            dropdown_text_color=FG,
+            text_color=FG,
+            corner_radius=10,
+            command=self._on_profile_changed,  # switching autosaves the current profile, then loads the chosen one
+        )
+        self.profile_menu.pack(side="left", padx=(4, 0), pady=14)
+
+        controls = ctk.CTkFrame(frame, fg_color="transparent")  # add/rename/delete buttons on the right
+        controls.pack(side="right", padx=16, pady=14)
+
+        ctk.CTkButton(
+            controls, text="+ Add", width=72, height=34,
+            font=("Segoe UI", 14, "bold"),
+            fg_color=BG_ENTRY,
+            hover_color="#1a3a6a",
+            corner_radius=10,
+            command=self._add_profile,  # create a brand-new empty profile and jump into it
+        ).pack(side="left", padx=4)
+        ctk.CTkButton(
+            controls, text="Rename", width=84, height=34,
+            font=("Segoe UI", 14, "bold"),
+            fg_color=BG_ENTRY,
+            hover_color="#1a3a6a",
+            corner_radius=10,
+            command=self._rename_profile,  # re-label the active profile
+        ).pack(side="left", padx=4)
+        ctk.CTkButton(
+            controls, text="Delete", width=84, height=34,
+            font=("Segoe UI", 14, "bold"),
+            fg_color=BG_ENTRY,
+            hover_color="#a01a2e",
+            corner_radius=10,
+            command=self._delete_profile,  # remove the active profile (never the last one)
+        ).pack(side="left", padx=4)
+
+    # ── Profiles ──────────────────────────────────────────────────────
+    def _profile_names(self) -> list[str]:
+        return list(self.profiles.keys())
+
+    def _refresh_profile_menu(self):
+        # Rebuild the dropdown's entries and park it on the active profile.
+        self.profile_menu.configure(values=self._profile_names())
+        self.profile_menu.set(self.active_profile)
+
+    def _on_profile_changed(self, name: str):
+        if name == self.active_profile or name not in self.profiles:
+            return  # no-op: same profile, or a name that no longer exists
+        self._save_current_profile()  # autosave the budget we're leaving behind...
+        self.active_profile = name    # ...then switch to the newly chosen one
+        self._apply_active_profile()
+
+    def _save_current_profile(self):
+        # Pull the on-screen budget into this profile's slot in the profiles dict.
+        self.profiles[self.active_profile] = {
+            "total": self._get_total(),
+            "categories": [
+                {"name": c["name"], "percent": c["percent"], "color": c["color"]}
+                for c in self.categories
+            ],
+        }
+
+    def _add_profile(self):
+        name = (ProfileNameDialog(self, "Name the new budget profile", "").result or "").strip()
+        if not name:
+            return  # dialog cancelled or blank
+        if name in self.profiles:
+            messagebox.showwarning("Duplicate name", f"A profile named “{name}” already exists.")
+            return
+        self._save_current_profile()  # autosave the one we're leaving before creating the new one
+        self.profiles[name] = {
+            "total": DEFAULT_TOTAL,
+            "categories": [dict(c) for c in DEFAULT_CATEGORIES],
+        }
+        self.active_profile = name    # jump straight into the brand-new profile
+        self._refresh_profile_menu()
+        self._apply_active_profile()
+
+    def _rename_profile(self):
+        old = self.active_profile
+        name = (ProfileNameDialog(self, "Rename budget profile", old).result or "").strip()
+        if not name or name == old:
+            return  # cancelled, blank, or unchanged
+        if name in self.profiles:
+            messagebox.showwarning("Duplicate name", f"A profile named “{name}” already exists.")
+            return
+        self.profiles[name] = self.profiles.pop(old)  # move the data to the new key in place
+        self.active_profile = name
+        self._refresh_profile_menu()
+
+    def _delete_profile(self):
+        if len(self.profiles) <= 1:
+            messagebox.showinfo("Cannot delete", "You must keep at least one budget profile.")
+            return
+        ok = messagebox.askyesno(
+            "Delete profile",
+            f"Delete the “{self.active_profile}” budget profile? This cannot be undone.",
+        )
+        if not ok:
+            return
+        del self.profiles[self.active_profile]
+        self.active_profile = self._profile_names()[0]  # land on whichever profile is left
+        self._refresh_profile_menu()
+        self._apply_active_profile()
 
     # ── Top: Total Budget ────────────────────────────────────────────────
     def _build_top(self):
@@ -402,16 +607,16 @@ class BudgetApp(ctk.CTk):
             fg_color=BG_ENTRY,
             hover_color="#1a3a6a",
             corner_radius=12,
-            command=self._save,  # persist the current budget to budget.json
+            command=self._save,  # persist every profile (and the active one) to budget.json
         ).pack(side="left", padx=6)
 
         ctk.CTkButton(
-            btn_frame, text="  Load  ", width=110, height=46,
+            btn_frame, text="  Reload  ", width=110, height=46,
             font=("Segoe UI", 16, "bold"),
             fg_color=BG_ENTRY,
             hover_color="#1a3a6a",
             corner_radius=12,
-            command=self._load,  # restore the budget stored in budget.json
+            command=self._reload_active,  # discard unsaved edits and restore the profile from disk
         ).pack(side="left", padx=6)
 
         self._update_remaining()  # refresh the footer readout once at startup
@@ -426,18 +631,36 @@ class BudgetApp(ctk.CTk):
         )
 
     # ── Persistence ──────────────────────────────────────────────────────
-    def _save(self):
-        # Serialize the current budget so it can be restored on a later launch.
-        data = {
-            "total": self._get_total(),
-            "categories": [
-                {"name": c["name"], "percent": c["percent"], "color": c["color"]}
-                for c in self.categories
-            ],
+    def _default_profile(self) -> dict:
+        return {
+            "total": DEFAULT_TOTAL,
+            "categories": [dict(c) for c in DEFAULT_CATEGORIES],
         }
+
+    def _validate_budget_data(self, data) -> dict:
+        # Check one profile's worth of saved data and return a sanitized copy;
+        # raises on malformed input so the caller can abort without mutating UI state.
+        total = max(0, int(float(str(data.get("total")).replace(",", ""))))
+        categories = []
+        for c in data["categories"]:
+            categories.append({
+                "name": str(c["name"]),
+                "percent": max(0, min(100, int(float(c["percent"])))),
+                "color": c["color"] if self._is_hex(c["color"]) else "#8888aa",
+            })
+        if not categories:  # never let a profile end up with zero rows
+            categories = [dict(c) for c in DEFAULT_CATEGORIES]
+        return {"total": total, "categories": categories}
+
+    def _save(self):
+        # Persist the whole profile store (active marker + every profile).
+        self._save_current_profile()  # snapshot the on-screen budget into its profile slot first
         try:
             SAVE_PATH.write_text(
-                json.dumps(data, indent=2, ensure_ascii=False),
+                json.dumps(
+                    {"active": self.active_profile, "profiles": self.profiles},
+                    indent=2, ensure_ascii=False,
+                ),
                 encoding="utf-8",
             )
         except (OSError, UnicodeEncodeError):
@@ -446,39 +669,66 @@ class BudgetApp(ctk.CTk):
                 "Could not save your budget. Check that the file is writable and not open elsewhere.",
             )
 
-    def _load(self):
+    def _load_storage(self):
+        # Load every saved profile. A missing file starts a single "Default"
+        # profile; a legacy single-budget file silently migrates into "Default".
         if not SAVE_PATH.exists():
-            return  # no saved budget yet — keep the default categories
+            self.profiles = {"Default": self._default_profile()}
+            self.active_profile = "Default"
+            self._refresh_profile_menu()
+            return
         try:
             data = json.loads(SAVE_PATH.read_text(encoding="utf-8"))
-
-            # Validate everything into locals first, so a bad file leaves the
-            # current budget completely untouched.
-            total = max(0, int(float(str(data.get("total")).replace(",", ""))))
-            categories = []
-            for c in data["categories"]:
-                categories.append({
-                    "name": str(c["name"]),
-                    "percent": max(0, min(100, int(float(c["percent"])))),
-                    "color": c["color"] if self._is_hex(c["color"]) else "#8888aa",
-                })
+            if "profiles" not in data:
+                # Legacy format: one budget with no profile wrapper.
+                profiles = {"Default": self._validate_budget_data(data)}
+                active = "Default"
+            else:
+                profiles = {
+                    str(name): self._validate_budget_data(prof)
+                    for name, prof in data["profiles"].items()
+                }
+                active = str(data.get("active") or "")
+                if active not in profiles:  # saved marker points somewhere unknown
+                    active = next(iter(profiles), "Default")
         except (KeyError, TypeError, ValueError, AttributeError, json.JSONDecodeError):
             messagebox.showerror(
                 "Load failed",
                 "Could not load your budget from budget.json. "
                 "The file may be corrupt or was edited by hand.",
             )
+            self.profiles = {"Default": self._default_profile()}
+            self.active_profile = "Default"
+            self._refresh_profile_menu()
             return  # nothing was mutated — the current budget stays intact
 
-        # Commit atomically now that the file is known to be valid.
-        if not categories:  # never let the panel end up with zero rows
-            categories = [dict(c) for c in DEFAULT_CATEGORIES]
-        self.total.set(str(total))
-        self._last_valid_total = total
-        self.categories = categories
+        if not profiles:  # file was valid but held no profiles at all
+            profiles = {"Default": self._default_profile()}
+        self.profiles = profiles
+        self.active_profile = active
+        self._refresh_profile_menu()
+
+    def _apply_active_profile(self):
+        # Commit one profile's saved data into the on-screen widgets.
+        profile = self.profiles.get(self.active_profile)
+        if profile is None:
+            return
+        self.total.set(str(profile["total"]))
+        self._last_valid_total = profile["total"]
+        self.categories = [dict(c) for c in profile["categories"]]
         self._rebuild_rows()
-        self.locked.set(True)      # a load restores the saved budget, so the entry starts read-only
+        self.locked.set(True)      # a load restores a saved budget, so the entry starts read-only
         self._apply_lock_state()
+        self._refresh_profile_menu()  # keep the dropdown label in sync with the active profile
+
+    def _reload_active(self):
+        # Discard unsaved edits and restore the active profile from disk.
+        self._load_storage()
+        self._apply_active_profile()
+
+    def _on_close(self):
+        self._save_current_profile()  # autosave the active profile before the window closes
+        self.destroy()
 
 
 if __name__ == "__main__":
