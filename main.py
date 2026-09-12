@@ -342,6 +342,21 @@ class BudgetApp(ctk.CTk):
             text_color=FG_DIM
         ).pack(side="left", padx=12, pady=6)
 
+        # View switcher: list the category rows, or show the donut breakdown instead.
+        view_switch = ctk.CTkSegmentedButton(
+            header, values=["List", "Chart"], width=150, height=32,
+            font=("Segoe UI", 13, "bold"),
+            fg_color=BG_ENTRY,
+            selected_color=NEON_GREEN,
+            selected_hover_color="#00d43a",
+            unselected_color=BG_ENTRY,
+            unselected_hover_color="#1a3a6a",
+            text_color=FG,
+            command=self._switch_view,
+        )
+        view_switch.set("List")
+        view_switch.pack(side="right", padx=12, pady=6)
+
         ctk.CTkButton(
             header, text="+ Add Category", width=130, height=34,
             font=("Segoe UI", 14, "bold"),
@@ -360,6 +375,21 @@ class BudgetApp(ctk.CTk):
         self.cat_frame.columnconfigure(3, weight=0)  # fixed width
         self.cat_frame.columnconfigure(4, weight=0)  # fixed width
         self.cat_frame.columnconfigure(5, weight=0)  # fixed width
+
+        # Chart view: donut canvas on the left, legend list on the right.
+        # Left unpacked until the user switches to it; swapped via _switch_view.
+        self.view_mode = "List"
+        self.chart_panel = ctk.CTkFrame(panel, fg_color=BG_FRAME, corner_radius=0)
+        self.chart_canvas = tk.Canvas(  # plain tk.Canvas tinted to match the neon theme
+            self.chart_panel, bg=BG_FRAME, highlightthickness=0,
+        )
+        self.chart_canvas.pack(side="left", fill="both", expand=True, padx=(8, 4), pady=(0, 8))
+        self.chart_canvas.bind("<Configure>", lambda _e: self._draw_chart())  # redraw on resize
+
+        self.legend_frame = ctk.CTkScrollableFrame(
+            self.chart_panel, fg_color=BG_FRAME, corner_radius=0, width=270,
+        )
+        self.legend_frame.pack(side="right", fill="y", padx=(4, 8), pady=(0, 8))
 
         # Create one default category row per entry.
         self.categories = [dict(cat) for cat in DEFAULT_CATEGORIES]  # working copies, so edits never touch the defaults
@@ -473,6 +503,7 @@ class BudgetApp(ctk.CTk):
                 self.name_widgets[idx].configure(text_color=hex_color, border_color=hex_color)
             elif self.name_widgets[idx] is not None:
                 self.name_widgets[idx].configure(text_color=hex_color)
+            self._refresh_chart()  # slice and legend chip take the new color
 
     def _start_rename(self, idx: int):
         col1_row = idx  # grid rows match the category index (row 0 is the first category)
@@ -514,6 +545,7 @@ class BudgetApp(ctk.CTk):
             new_name = original  # fall back to the old name if the box was cleared
         self.categories[idx]["name"] = new_name
         self._replace_name_with_label(idx, new_name)  # put the label back with the new text
+        self._refresh_chart()  # legend row shows the updated name
 
     def _cancel_rename(self, idx: int, original: str):
         # Throw away whatever was typed and restore the original name as a label.
@@ -541,6 +573,7 @@ class BudgetApp(ctk.CTk):
         self.dollar_labels[idx].configure(text=f"${self._calc_dollar(pct):,.0f}")
         self.sliders[idx].set(pct)  # snap the thumb to the rounded value so it matches the labels
         self._update_remaining()  # footer must re-total as soon as a split changes
+        self._refresh_chart()  # donut and legend follow the slider live
 
     def _get_total(self) -> int:
         # Parse the total entry's text; fall back to the last valid amount if it holds garbage.
@@ -564,6 +597,7 @@ class BudgetApp(ctk.CTk):
         self.categories.append(new_cat)  # register it in the working list first...
         self._add_category_row(len(self.categories) - 1, new_cat)  # ...then draw its row at the index it now holds
         self._update_remaining()  # keep the footer readout fresh (0% adds nothing, but stay consistent)
+        self._refresh_chart()  # the new entry shows up in the legend too
 
     def _delete_category(self, idx: int):
         # Never drop the last category so the panel always keeps at least one row.
@@ -586,6 +620,96 @@ class BudgetApp(ctk.CTk):
         for i, cat in enumerate(self.categories):
             self._add_category_row(i, cat)
         self._update_remaining()  # footer re-totals now that the row count has changed
+        self._refresh_chart()  # rebuild the legend/donut to match the row list (includes profile switches)
+
+    # ── Chart view ────────────────────────────────────────────────────
+    def _switch_view(self, value: str):
+        # Toggle which widget fills the categories panel: the row list or the donut.
+        self.view_mode = value
+        if value == "Chart":
+            self.cat_frame.pack_forget()
+            self.chart_panel.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+            self._refresh_chart()  # in case it was never drawn, or resized while hidden
+        else:
+            self.chart_panel.pack_forget()
+            self.cat_frame.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+
+    def _refresh_chart(self):
+        # Rebuild the legend (data changed) and redraw the donut to match the canvas.
+        self._rebuild_legend()
+        self._draw_chart()
+
+    def _rebuild_legend(self):
+        # One row per category: color chip, name, percent, and dollar amount.
+        for widget in self.legend_frame.grid_slaves():
+            widget.destroy()
+        self.legend_frame.columnconfigure(0, weight=1)
+        for i, cat in enumerate(self.categories):
+            row = ctk.CTkFrame(self.legend_frame, fg_color="transparent")
+            row.grid(row=i, column=0, sticky="ew", padx=4, pady=6)
+
+            ctk.CTkLabel(
+                row, text="", width=18, height=18,
+                fg_color=cat["color"], corner_radius=4,
+            ).pack(side="left", padx=(4, 10), pady=4)
+            ctk.CTkLabel(
+                row, text=cat["name"], font=("Segoe UI", 15, "bold"),
+                text_color=FG, anchor="w",
+            ).pack(side="left", padx=2, pady=4, fill="x", expand=True)
+
+            dim = FG_DIM if cat["percent"] == 0 else cat["color"]  # zero-amount rows fade out
+            ctk.CTkLabel(
+                row, text=f"{cat['percent']}%", font=("Consolas", 15, "bold"),
+                text_color=dim, width=48, anchor="e",
+            ).pack(side="left", padx=4, pady=4)
+            ctk.CTkLabel(
+                row, text=f"${self._calc_dollar(cat['percent']):,.0f}",
+                font=("Consolas", 15, "bold"), text_color=dim, width=84, anchor="e",
+            ).pack(side="left", padx=(4, 8), pady=4)
+
+    def _draw_chart(self):
+        # Redraw the donut: one slice per non-empty category. Safe to call at any
+        # size; a too-small canvas just waits for the next <Configure> event.
+        canvas = self.chart_canvas
+        canvas.delete("all")
+        w, h = canvas.winfo_width(), canvas.winfo_height()
+        if w < 40 or h < 40:
+            return  # not laid out yet — the <Configure> binding redraws it later
+
+        size = min(w, h) - 24  # square that fits inside the canvas
+        if size < 20:
+            return
+        x0, y0 = (w - size) / 2, (h - size) / 2
+        x1, y1 = x0 + size, y0 + size
+
+        start, remaining = -90, 360.0  # begin at 12 o'clock; clamp at a full circle
+        for cat in self.categories:
+            pct = cat["percent"]
+            if pct <= 0 or remaining <= 0:
+                continue  # zero slices (and any over-budget overflow) show only in the legend
+            extent = min(pct / 100 * 360.0, remaining)
+            canvas.create_arc(
+                x0, y0, x1, y1, start=start, extent=extent,
+                fill=cat["color"], outline=BG, width=2, style="pieslice",
+            )
+            start += extent
+            remaining -= extent
+
+        if remaining >= 360.0:  # nothing allocated at all — draw a dim placeholder ring
+            canvas.create_arc(
+                x0, y0, x1, y1, start=0, extent=359.9,
+                fill=BG_ENTRY, outline=BG_ENTRY, style="pieslice", width=1,
+            )
+
+        # Donut hole with the total budget inside it.
+        inner = size * 0.62
+        ix0, iy0 = (w - inner) / 2, (h - inner) / 2
+        canvas.create_oval(ix0, iy0, ix0 + inner, iy0 + inner, fill=BG_FRAME, outline=BG_FRAME)
+        cx, cy = w / 2, h / 2
+        canvas.create_text(cx, cy - 14, text="TOTAL BUDGET",
+                           font=("Segoe UI", 12, "bold"), fill=FG_DIM)
+        canvas.create_text(cx, cy + 12, text=f"${self._get_total():,.0f}",
+                           font=("Consolas", 26, "bold"), fill=NEON_GREEN)
 
     # ── Footer ───────────────────────────────────────────────────────────
     def _build_footer(self):
